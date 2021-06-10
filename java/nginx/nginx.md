@@ -428,3 +428,314 @@ tasklist /fi "imagename eq nginx.exe"
 
 
 
+### 非调优属性
+
+```perl
+#将当前目录(conf 目录)中的 mime.types 文件包含进来
+include mime.types;
+
+#对于无扩展名的文件，默认其为 application/octet-stream 类型，即 Nginx 会将其作为一个八进制流文件来处理
+default_type application/octet-stream;
+
+#设置请求与响应的字符编码
+charset utf-8;
+```
+
+
+
+### sendfile on
+
+​	设置为 on 则开启 Linux 系统的零拷贝机制，否则不启用零拷贝。当然，开启后是否起作用，要看所使用的系统版本。CentOS6 及其以上版本支持 sendfile 零拷贝。
+
+
+
+###   tcp_nopush on
+
+- on：以单独的数据包形式发送 Nginx 的响应头信息，而真正的响应体数据会再以数据包的形式发送，这个数据包中就不再包含响应头信息了。当向客户端响应的数据量比较大时，可以开启，可以降低数据冗余，减少数据发送量。
+- off：默认值，响应头信息包含在每一个响应体数据包中
+
+
+
+### tcp_nodelay on
+
+- on：不设置数据发送缓存，即不推迟发送，适合于传输小数据，无需缓存。
+- off：开启发送缓存。若传输的数据是图片等大数据量文件，则建议设置为 off
+
+
+
+### keepalive_timeout 60
+
+​	设置客户端与Nginx间所建立的长连接的生命超时时间，时间到达，则连接将自动关闭。单位秒。
+
+​	0表示不支持长连接。
+
+​	连接时间也要看浏览器支持的最大时间。
+
+
+
+### keepalive_requests 10000
+
+​	设置一个长连接最多可以发送的请求数。该值需要在真实环境下测试。
+
+
+
+### client_body_timeout 10
+
+​	设置客户端获取 Nginx 响应的超时时限，即一个请求从客户端发出到接收到 Nginx 的响应的最长时间间隔。若超时，则认为本次请求失败。
+
+​	该参数在建立连接后会传递给客户端，由客户端来判断。
+
+
+
+# 请求定位
+
+## 路径匹配优先级
+
+路径匹配优先级如下：
+
+​	普通匹配 < 长路径匹配 < 正则匹配 < 短路匹配 < 精确匹配
+
+- 普通匹配
+
+```perl
+#只要请求以/aaa开头就能命中
+location /aaa {
+    ......
+}
+```
+
+- 长路径匹配
+
+```perl
+#当一个请求同时匹配一个长路径和一个短路径时，长路径优先级高,下面两个匹配请求localhost:8080/aaa/bbb/ccc时命中的是第二个
+location /aaa{
+    ......
+}
+location /aaa/bbb {
+    ......
+}
+```
+
+- 正则匹配
+
+```perl
+#在正则匹配与普通匹配（长路径匹配也属于普通匹配）均可匹配上时，正则匹配的优先级高。
+#正则匹配分为区分大小（~）的和不区分大小写（~*）的
+
+#区分大小写匹配/aaa开头
+location ~/aaa {
+    ......
+}
+#不区分大小写匹配/aaa开头
+location ~*/aaa {
+    ......
+}
+
+```
+
+- 短路匹配
+
+```perl
+#以A~开头匹配路径称为短路匹配，优先级高于正则匹配
+location A~/aaa {
+    ......
+}
+```
+
+- 精确匹配
+
+```perl
+#以=开头的匹配路径为精确匹配，它的优先级最高
+location =/aaa {
+    ......
+}
+```
+
+
+
+## 缓存配置
+
+​	Nginx具有很强大的缓存功能，可以对请求的response进行缓存，起到类似CDN的作用，甚至有比 CDN 更强大的功能。同时，Nginx 缓存还可以用来“数据托底”，即当后台 web 服务器挂掉的时候，Nginx 可以直接将缓存中的托底数据返回给用户。此功能就是 Nginx 实现“服务降级”的体现。
+​	Nginx 缓存功能的配置由两部分构成：全局定义与局部定义。在 http{}模块的全局部分中进行缓存全局定义，在 server{}模块的各个 location{}模块中根据业务需求进行缓存局部定义。
+
+
+
+### http{} 模块的缓存全局定义
+
+
+
+#### proxy_cache_path
+
+```perl
+proxy_cache_path d:/cache levels=1:2 keys_zone=mycache:10m 
+					max_size=5g inactive=2h use_temp_path=off;
+```
+
+用于指定nginx缓存的存放路径和相关配置
+
+- d:cache
+
+  nginx缓存存放路径，可以是任意路径
+
+- levels=1:2
+
+  在指定的缓存存放路径下采用两级目录进行管理，第一级目录使用1个字符命名，第二级使用2个字符命名
+
+- keys_zone=mycache:10m
+
+  在内存中指定一块区域存放缓存的key，这样nginx就可以快速判断一个请求是否命中缓存。mycache是这块内存区域的名称，可以随意命名。10m表示这块内存区域的大小。
+
+- max_size=5g
+
+  用于设置缓存所占硬盘空间的最大大小。若不指定，最终会将硬盘占满
+
+- inactive=2h
+
+  表示未被使用的缓存最长的存活时间为2小时，超过2小时会自动被删除。
+
+- use_temp_path=off
+
+  是否启用临时路径。为off时，nginx会将缓存文件直接写入缓存空间。否则，会先将缓存文件写入proxy_temp_path设置的临时目录中，达到某容量或某时间点（需配置）后再一次性将临时目录中的缓存写入到指定的缓存空间。
+
+  需要注意，所有向缓存空间写入的缓存数据都需要根据其key进行运算，以确定其在缓存空间的具体存放目录。这种运算是相对较耗时的。而先放在临时目录，再批量写入缓存空间可以提高效率。
+
+  一般情况下设为off，当需要缓存的数据量较大时才考虑启用临时路径。
+
+#### proxy_temp_path
+
+​	指定Nginx缓存的临时存放目录。若proxy_cache_path中的use_temp_path设置为了off，则该属性可以不指定。
+
+
+
+### location{} 模块的缓存局部定义
+
+#### proxy_cache mycache
+
+​	指定用于存放缓存 key 内存区域名称。其值为 http{}模块中 proxy_cache_path 中的keys_zone 的值
+
+### proxy_cache_key $host$request_uri
+
+​	指定 Nginx 生成的缓存的 key 的组成。 $host  $request_uri 都是系统定义好的变量
+
+### proxy_cache_bypass $arg_age
+
+​	指定当前请求是否从缓存中获取数据。只要请求中包含age参数，就不走缓存
+
+### proxy_cache_methods GET HEAD
+
+​	指定客户端请求的哪些提交方法将被缓存，默认为 GET 与 HEAD，但不缓存 POST
+
+### proxy_no_cache $aaa $bbb $ccc
+
+​	指定对本次请求是否不做缓存。只要$aaa $bbb $ccc中有一个不为 0，就不对该请求结果缓存。
+
+### proxy_cache_purge $ddd $eee $fff
+
+​	指定是否清除缓存 key。
+
+### proxy_cache_lock on
+
+​	指定是否采用互斥方式回源
+
+### proxy_cache_lock_timeout 5s
+
+​	指定再次生成回源互斥锁的时限
+
+### proxy_cache_valid 200 301 302 5s
+
+​	对指定的 HTTP 状态码的响应数据进行缓存，并指定缓存时间。默认指定的状态码为200，301，302.
+
+​	该配置表示对返回200、301、302的接口进行缓存，缓存时间为5s
+
+### proxy_cache_use_stale error timeout http_500
+
+​	设置启用托底缓存的条件。而一旦这里指定了相应的状态码，则前面 proxy_cache_calid中指定的相应状态码所生成的缓存就变为了“托底缓存”。
+
+###  expires 3m
+
+​	为请求的静态资源开启浏览器端的缓存
+
+
+
+## nginx变量
+
+内置变量：
+
+```
+$args 请求中的参数;
+$binary_remote_addr 远程地址的二进制表示
+$body_bytes_sent 已发送的消息体字节数
+$content_length HTTP 请求信息里的"Content-Length"
+$content_type 请求信息里的"Content-Type"
+$document_root 针对当前请求的根路径设置值
+$document_uri 与$uri 相同
+$host 请求信息中的"Host"，如果请求中没有 Host 行，则等于设置的服务器名;
+$http_cookie cookie 信息
+$http_referer 来源地址
+$http_user_agent 客户端代理信息
+$http_via 最后一个访问服务器的 Ip 地址
+$http_x_forwarded_for 相当于网络访问路径。
+$limit_rate 对连接速率的限制
+$remote_addr 客户端地址
+$remote_port 客户端端口号
+$remote_user 客户端用户名，认证用
+$request 用户请求信息
+$request_body 用户请求主体
+$request_body_file 发往后端的本地文件名称
+$request_filename 当前请求的文件路径名
+$request_method 请求的方法，比如"GET"、"POST"等
+$request_uri 请求的 URI，带参数
+$server_addr 服务器地址，如果没有用 listen 指明服务器地址，使用这个变量将发起一次系统调用以取得地址(造成资源浪费)
+$server_name 请求到达的服务器名
+$server_port 请求到达的服务器端口号
+$server_protocol 请求的协议版本，"HTTP/1.0"或"HTTP/1.1"
+$uri 请求的 URI，可能和最初的值有不同，比如经过重定向之类的
+```
+
+
+
+自定义变量
+
+```perl
+set $aaa "hello";
+set $bbb 0;
+```
+
+
+
+# nginx日志管理
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
