@@ -705,19 +705,459 @@ set $bbb 0;
 
 # nginx日志管理
 
+## 日志管理范围
+
+下面要讲的这些日志相关属性可以配置在任意模块。在不同的模块，记录的是不同请求的日志信息。即，日志记录的请求范围是不同的。Nginx 日志一般可以指定三个范围：http{}模块范围、server{}模块范围，与 location{}模块范围。
+
+###  http{} 模块范围
+
+只要有请求通过 http 协议访问该 Nginx，就会有日志信息写入到这里的日志文件。
+
+```perl
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+    access_log  logs/access.log  main;
+    error_log  logs/error.log;
+
+	......
+}
+```
+###  server{} 模块范围
+
+只要有请求访问当前 Server，就会有日志信息写入到这里的日志文件。
+
+```perl
+server {
+    listen       20001;
+    server_name  localhost;
+
+    #charset koi8-r;
+
+    access_log  logs/host.access.log  main;
+    error_log  logs/host.error.log;
+	......
+}
+```
 
 
 
+###  location{} 模拟范围
+
+只要有请求访问当前 location，就会有日志信息写入到这里的日志文件。
+
+```perl
+location / {
+    root html;
+    index index.html;
+    
+    access_log  logs/location.access.log  main;
+    error_log  logs/location.error.log;
+}
+```
 
 
 
+## 日志管理指令
+
+### log_format
+
+```perl
+log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
+```
+
+​	用于设置访问日志的格式，其后的 main 是为该格式所起的名称，可以任意，而其后面
+的内容则为具体格式，通过 Nginx [内置变量](#nginx变量)定义。
 
 
 
+### access_log
+
+```perl
+access_log logs/access.log main buffer=64k;
+```
+
+该指令用于设置访问日志。上面的格式包含三个参数：
+
+- 第一个参数是日志的存放路径与日志文件名；
+
+- 第二个参数是日志格式名；
+
+- 第三个参数是日志文件所使用的缓存。不过，即使不指定 buffer，其也会存在默认
+  日志缓存的。
+
+- access_log 还可以跟一个参数 off，用于关闭访问日志，即直接写 access_log off 即
+  可关闭访问日志。
 
 
 
+### error_log
 
+```perl
+error_log logs/error.log debug;
+```
+
+该指令用于指定错误日志的路径与文件名。需要注意以下几点：
+
+- 其不能指定格式，因为其有默认格式。
+- 可以使用自己指定的错误日志文件，不过，将来的访问异常日志就不会再写入到默认的logs/error.log 文件中了。所以关于错误日志，一般使用默认的即可。
+- 错误日志级别由低到高有：[debug | info | notice | warn | error | crit | alert | emerg]，默认为 error，级别越高记录的信息越少。
+- 错误日志默认是开启的。关闭错误日志的写法为 error_log  /dev/null;
+
+
+
+### open_log_file_cache
+
+```perl
+open_log_file_cache max=1000 inactive=10s min_uses=2 valid=60s
+```
+
+​	该指令用于打开日志文件读缓存，将日志信息读取到缓存中，以加快日志解析系统对日志的访问。该功能默认为 off，即 open_log_file_cache off;
+
+- max 最大可以打开的日志文件个数
+- inactive和min_uses要联用：在日志进入缓存inactive时间内，应至少有min_uses次被访问。否则该日志将被移除缓存。
+- valid 缓存日志刷新时间
+
+
+
+## 默认的/favicon.ico请求
+
+​	浏览器tabl页上的图标。客户端对于服务端页面会自动提交一个/favicon.ico 请求，若没有 favicon.ico 文件则会在日志文件中报出 404。
+​	从网上任意下载一个ico图标，将其重命名为favicon.ico，然后放到Linux中的任意目录。然后再修改 nginx.conf 文件，在其中添加如下的 location{}模块。注意，若将其添加到的位置与页面在同一个目录，下面的 location{}模块不用设置。
+
+```perl
+location /favicon.ico {
+    root html;
+}
+```
+
+
+
+## 日志自动切割
+
+​	日志切割的方式有很多，需要时上网查即可。这里只以Linux为例简单介绍一下大概步骤。
+
+- 创建切割 shell  脚本文件
+- 为该文件添加可执行权限
+- 向 crontab中添加一个定时任务
+
+
+
+# 静态代理
+
+​	Nginx 静态代理是指，将所有的静态资源，例如，css、js、html、jpg 等资源存放到 Nginx服务器，而不存放在应用服务器 Tomcat 中。当客户端发出的请求是对这些静态资源的请求时，Nginx 直接将这些静态资源响应给客户端，而无需提交给应用服务器处理。这样就减轻了应用服务器的压力。
+
+
+
+## 拦截方式
+
+```perl
+#拦截以.css/.js/.html/.jpg/.png结尾的静态资源
+location ~.*\.(css|js|html|jpg|png) {
+    root d:static
+}
+
+#拦截css/js/images/html文件夹下的静态资源
+location ~.*(css|js|images|html).+ {
+    root d:static
+}
+```
+
+
+
+## 页面压缩
+
+### 浏览器常见的压缩算法
+
+- deflate ： 是一种过时的压缩算法，是 huffman 编码的一种加强。
+- gzip：是目前大多数浏览器都支持的一种压缩算法，是对 deflate 的改进。
+- sdch：Shard Dictionary Compression over HTTP（HTTP共享字典压缩算法）。谷歌开发的一种压缩算法，一种全新的压缩思路。deflate 与 gzip 的的压缩思想是，修改传输数据的编码格式以达到减少体量的目的，其最终传输的数据并没有减少。而sdch 压缩算法的思想是，让冗余的数据仅出现一次，其最终传输的数据减少了。2010年。
+- Zopfli：谷歌开发的一种压缩算法，Deflate 压缩算法的改进。比标准的gzip -9要小 3%-8%，但压缩用时是 gzip -9 的 80 多倍。2013年
+- br：即 Brotli，谷歌开发的一种压缩算法，是一种全新的数据格式。与 Zopfli 相比，压缩率能够降低 20%-26%。Brotli -1 有着与 Gzip -9 相近的压缩比和更快的压缩解压速度。2015年
+
+
+
+### 常用设置
+
+```
+#开启gzip压缩，默认off
+gzip on;
+
+#指定最小启用压缩的文件大小
+gzip_min_length 5K;
+
+#指定压缩级别。1-9。数字越大，压缩比越高，但压缩时间越长。默认为1
+gzip_comp_level 4;
+
+#4表示缓存颗粒数量，16K表示缓存颗粒大小
+gzip_buffers 4 16K
+
+#开启动态压缩，默认关闭
+gzip_vary on;
+
+#通过 MIME 类型来指定要压缩的文件类型。默认值 text/html。支持的类型可查看config/mime.types
+gzip_types mimeType;
+gzip_types text/plain application/javascript;
+
+```
+
+
+
+# 反向代理
+
+通过在location{}中添加通行代理proxy_pass可以指定当前Nginx所要代理的真正服务器。
+
+```perl
+location /test/ {
+    proxy_pass https://www.baidu.com/;
+    
+    #Nginx允许客户端请求的单文件最大大小，单位字节。
+    client_max_body_size 100k;
+    #Nginx 为客户端请求设置的缓存大小。
+    client_body_buffer_size 80k;
+    #开启从后端被代理服务器的响应内容缓冲区。默认值 on。
+    proxy_buffering on;
+    #该指令用于设置缓冲区的数量与大小。从被代理的后端服务器取得的响应内容，会缓存到这里。
+    proxy_buffers 4 8k;
+    #高负荷下缓存大小，其默认值为一般为单个 proxy_buffers 的 2 倍。
+    proxy_busy_buffers_size 16k;
+    #Nginx 跟后端服务器连接超时时间。默认 60 秒。
+    proxy_connect_timeout 60s;
+    #Nginx 发出请求后等待后端服务器响应的最长时限。默认 60 秒。
+    proxy_read_timeout 60s;
+}
+```
+
+
+
+# 负载均衡
+
+## 负载均衡分类
+
+### 软硬件分类
+
+#### 硬件负载均衡
+
+​	硬件负载均衡器的性能稳定，且有生产厂商作为专业的服务团队。但其成本很高，一台硬件负载均衡器的价格一般都在十几万到几十万，甚至上百万。知名的负载均衡器有 F5、Array、深信服、梭子鱼等。
+
+#### 软件负载均衡
+
+​	软件负载均衡成本几乎为零，基本都是开源软件。例如，LVS、HAProxy、Nginx 等。
+
+
+
+### 负载均衡工作层分类
+
+​	负载均衡就其所工作的 OSI 层次，在生产应用层面分为两类：七层负载均衡与四层负载均衡。当然，为四层负载均衡提供更为底层实现的，还有三层负载均衡与二层负载均衡。
+
+- 七层负载均衡L7：应用层，基于 HTTP 协议，通过虚拟 URL 将请求分配到真实服务器。一般应用于基于HTTP协议的 B/S 架构系统。Nginx 就是七层负载均衡。
+- 四层负载均衡L4：传输层，基于 TCP 协议，通过“虚拟 IP + 端口号” 将请求分配到真实服务器。一般应用于 C /S 架构系统。例如，LVS、F5、Nginx Plus 都属于四层负载均衡。
+- 三层负载均衡L3：网络层，基于 IP 协议，通过虚拟 IP 将请求分配到真实服务器。部分DNS提供的是L3负载均衡
+-  二层负载均衡L2：数据链路层，基于虚拟 MAC 地址将请求分配到真实服务器。
+
+
+
+## 负载均衡的实现
+
+```perl
+upstream www.xxx.com {
+    server localhost:1001 weight=1;
+    server localhost:1002 weight=1;
+    server localhost:1003 weight=1;
+}
+
+server {
+    listen 80;
+    server_name localhost;
+    
+    location /test/ {
+        proxy_pass http://www.xxx.com;
+    }
+    
+    ......
+}
+```
+
+
+
+## Nginx 负载均衡策略
+
+​	Nginx 内置了三种负载均衡策略，另外，其还支持第三方的负载均衡。而每种负载均衡主机根据负载均衡策略的不同，又可设置很多性能相关的属性。
+
+
+
+### 轮询
+
+​	默认的负载均衡策略，其是按照各个主机的权重比例依次进行请求分配的。
+
+```perl
+upstream www.xxx.com {
+    server localhost:1001 weight=1 fail_timeout=20 max_fail=3;
+    server localhost:1002 weight=1 fail_timeout=20 max_fail=3;
+    server localhost:1003 backup;
+    server localhost:1004 down;
+}
+```
+
+- fail_ timeout：表示当前主机被 Nginx 认定为停机的最长失联时间，默认为 10 秒。常与max_fails 联合使用。
+- max_fails：表示在 fail_timeout 时间内最多允许的失败次数。
+- backup：表示当前服务器为备用服务器。
+- down：表示当前服务器永久停机。
+
+
+
+### ip_hash
+
+​	指定负载均衡器按照基于客户端 IP 的分配方式。
+
+```perl
+upstream www.xxx.com {
+	ip_hash；
+    server localhost:1001 weight=1 fail_timeout=20 max_fail=3;；
+    server localhost:1002 weight=1 fail_timeout=20 max_fail=3;
+    server localhost:1003 down;
+}
+```
+
+对于该策略需要注意以下几点：
+
+-  在 nginx1.3.1 版本之前，该策略中不能指定 weight 属性。
+- 该策略不能与 backup 同时使用。
+- 此策略适合有状态服务，比如 session。
+- 当有服务器宕机，必须手动指定 down 属性，否则请求仍是会落到该服务器。
+
+
+
+### least_conn
+
+​	把请求转发给连接数最少的服务器
+
+```perl
+upstream www.xxx.com {
+	least_conn；
+    server localhost:1001 weight=1 fail_timeout=20 max_fail=3;；
+    server localhost:1002 weight=1 fail_timeout=20 max_fail=3;
+    server localhost:1003 backup;
+    server localhost:1004 down;
+}
+```
+
+
+
+## Nginx Plux  的四层负载均衡实现
+
+​	同样是修改 nginx.conf 文件，添加一个 stream 模块，其与 events、http 等模块同级。在其中配置 upstream{}与 server{}模块。此时需要注意，通行代理配置在 server{}中（前面的是配置在 server 模块的 location 模块中），且不能再是 http://开头的了，因为其负载均衡协议不再是 HTTP 协议了。
+
+```perl
+event {
+    //......
+}
+
+stream{
+    upstream www.xxx.com {
+        server localhost:1001;
+        server localhost:1002;
+        server localhost:1003;
+	}
+	server {
+        listen 8888;
+        proxy_pass www.xxx.com;
+	}
+}
+
+http {
+    //......
+}
+```
+
+
+
+# 动静分离
+
+```perl
+upstream www.xxx.com {
+    server tomcatOS1:8080;
+    server tomcatOS2:8080;
+}
+
+upstream static.xxx.com {
+    server nginxOS1:80;
+    server nginxOS2:80;
+}
+server {
+    listen 80;
+    server_name localhost;
+    
+    location / {
+        proxy_pass http://www.xxx.com;
+    }
+    
+    location ~.*/(css|js|images) {
+        proxy_pass http://static.xxx.com;
+    }
+}
+```
+
+
+
+# 虚拟主机
+
+​	虚拟主机，就是将一台物理服务器虚拟为多个服务器来使用，从而实现在一台服务器上配置多个站点，即可以在一台物理机上配置多个域名。Nginx中，一个server标签就是一台虚拟主机，配置多个server标签就虚拟除了多台主机。
+
+​	Nginx虚拟主机的实现方式有两种：域名虚拟方式和端口虚拟方式。域名虚拟方式是指不同的虚拟机使用不同的域名，通过不同的域名虚拟出不同的主机；端口虚拟方式是指不同的虚拟机使用相同的域名不同的端口号，通过不同的端口号虚拟出不同的主机。基于端口的虚拟方式不常用。
+
+​	现在很多生活服务类网络平台都具有这样的功能：不同城市的用户可以打开不同城市专属的站点。用户首先打开的是平台总的站点，然后允许用户切换到不同的城市。其实，不同的城市都是一个不同的站点。
+
+​	以下我们要实现的功能是为平台总站点，北京、上海两个城市站点分别创建一个虚拟主机。每一个虚拟主机都具有两台 Tomcat 的负载均衡主机。
+
+​	
+
+```perl
+upstream www.xxx.com {
+    server tomcatOS:8080;
+    server tomcatOS:8081;
+}
+upstream bj.xxx.com {
+    server tomcatOS:8082;
+    server tomcatOS:8083;
+}
+upstream sh.xxx.com {
+    server tomcatOS:8084;
+    server tomcatOS:8085;
+}
+
+server {
+	listen 80;
+	server_name www.xxx.com;
+	
+	location / {
+        proxy_pass http://www.xxx.com;
+	}
+}
+
+server {
+	listen 80;
+	server_name bj.xxx.com;
+	
+	location / {
+        proxy_pass http://bj.xxx.com;
+	}
+}
+server {
+	listen 80;
+	server_name sh.xxx.com;
+	
+	location / {
+        proxy_pass http://sh.xxx.com;
+	}
+}
+```
 
 
 
