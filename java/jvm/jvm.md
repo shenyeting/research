@@ -79,7 +79,7 @@ OpenJDK 64-Bit Server VM (build 25.144-b01， mixed mode)
 
 ​	JVM是《JVM虚拟机规范》中提出来的规范。
 
-​	Hotspot是使用JVM规范的商用产品，除此之外还有ORACLE的JRockit、IBM的J9也是JVM产品。
+​	Hotspot是使用JVM规范的商用产品，除此之外还有Sun的Classic VM， BEA的JRockit、IBM的J9、GraalVM等等
 
 ​	Oracle公司在分别收购了BEA公司和Sun公司后，将HotSpot VM和JRocket VM进行整合，在Hotspot的基础上，移植了JRocket的优秀特性。
 
@@ -522,6 +522,154 @@ public class TestLockEliminate {
 
 
 
+# Class文件
+
+
+
+## 文件结构说明
+
+![20200810164425831](D:\repositories\others\research\java\jvm\images\20200810164425831.png)
+
+根据上图，我们可以将class文件的组织结构概括为以下的表格（其中u4表示4个无符号字节，u2表示2个无符号字节）：
+
+|    **类型**    |      **名称**       |        **说明**         |         数量          |
+| :------------: | :-----------------: | :---------------------: | :-------------------: |
+|       u4       |        magic        | 魔数，识别Class文件格式 |           1           |
+|       u2       |    minor_version    |        副版本号         |           1           |
+|       u2       |    major_version    |        主版本号         |           1           |
+|       u2       | constant_pool_count |       常量池数量        |           1           |
+|    cp_info     |    constant_pool    |         常量池          | constant_pool_count-1 |
+|       u2       |    access_flags     |        访问标志         |           1           |
+|       u2       |     this_class      |         类引用          |           1           |
+|       u2       |     super_class     |        父类引用         |           1           |
+|       u2       |  interfaces_count   |        接口数量         |           1           |
+|       u2       |     interfaces      |        接口集合         |   interfaces_count    |
+|       u2       |    fields_count     |        字段数量         |           1           |
+|   field_info   |       fields        |        字段集合         |     fields_count      |
+|       u2       |    methods_count    |        方法数量         |           1           |
+|  method_info   |       methods       |        方法集合         |     methods_count     |
+|       u2       |  attributes_count   |        属性数量         |           1           |
+| attribute_info |     attributes      |        属性集合         |   attributes_count    |
+
+
+
+### 魔数
+
+​	所有的由Java编译器编译而成的class文件的前4个字节都是“0xCAFEBABE”。
+
+​	它的作用在于：当JVM在尝试加载某个文件到内存中来的时候，会首先判断此class文件有没有JVM认为可以接受的“签名”，即JVM会首先读取文件的前4个字节，判断该4个字节是否是“0xCAFEBABE”，果是，则JVM会认为可以将此文件当作class文件来加载并使用。
+
+​	对于魔数的由来，Java编程语言之父,詹姆斯•高斯林(James Gosling),曾这样说过：
+
+​	We used to go to lunch at a place called St Michael's Alley. According to local legend, in the deep dark past, the Grateful Dead used to perform there before they made it big. It was a pretty funky place that was definitely a Grateful Dead Kinda Place. When Jerry died, they even put up a little Buddhist-esque shrine. When we used to go there, we referred to the place as Cafe Dead. Somewhere along the line it was noticed that this was a HEX number. I was re-vamping some file format code and needed a couple of magic numbers: one for the persistent object file, and one for classes. I used CAFEDEAD for the object file format, and in grepping for 4 character hex words that fit after "CAFE" (it seemed to be a good theme) I hit on BABE and decided to use it. At that time, it didn't seem terribly important or destined to go anywhere but the trash-can of history. So CAFEBABE became the class file format, and CAFEDEAD was the persistent object format. But the persistent object facility went away, and along with it went the use of CAFEDEAD - it was eventually replaced by RMI
+
+
+
+### 版本号
+
+​	主版本号和次版本号在class文件中各占两个字节，副版本号占用第5、6两个字节，而主版本号则占用第7，8两个字节。JDK1.0的主版本号为45，以后的每个新主版本都会在原先版本的基础上加1。若现在使用的是JDK1.8编译出来的class文件，则相应的主版本号应该是52，对应的7，8个字节的十六进制的值应该是 0x0034
+
+​	一个 JVM实例只能支持特定范围内的主版本号 （Mi 至Mj） 和 0 至特定范围内 （0 至 m） 的副版本号。假设一个 Class 文件的格式版本号为 V， 仅当Mi.0 ≤ v ≤ Mj.m成立时，这个 Class 文件才可以被此 Java 虚拟机支持。不同版本的 Java 虚拟机实现支持的版本号也不同，高版本号的 Java虚拟机实现可以支持低版本号的 Class 文件，反之则不成立。JVM在加载class文件的时候，会读取出主版本号，然后比较这个class文件的主版本号和JVM本身的版本号，如果JVM本身的版本号 < class文件的版本号，JVM会认为加载不了这个class文件，会抛出我们经常见到的" java.lang.UnsupportedClassVersionError: Bad version number in .class file " Error 错误；反之，JVM会认为可以加载此class文件，继续加载此class文件。
+
+### 常量池计数器
+
+​	常量池是class文件中非常重要的结构，它描述着整个class文件的字面量信息。常量池是由一组constant_pool结构体数组组成的，而数组的大小则由常量池计数器指定。常量池计数器constant_pool_count 的值 = constant_pool表中的成员数+ 1。constant_pool表的索引值只有在大于 0 且小于constant_pool_count时才会被认为是有效的
+
+​	注：常量池计数器默认从1开始而不是从0开始，当constant_pool_count = 1时，常量池中的cp_info个数为0。在指定class文件规范的时候，将索引#0项常量空出来是有特殊考虑的，这样当：某些数据在特定的情况下想表达“不引用任何一个常量池项”的意思时，就可以将其引用的常量的索引值设置为#0来表示。
+
+### 常量池数据区
+
+
+
+![1625207115917](D:\repositories\others\research\java\jvm\images\1625207115917.png)
+
+
+
+![1624701698568](D:\repositories\others\research\java\jvm\images\1624701698568.png)
+
+​	每个cp_info都会记录着class文件中某种类型的字面量。JVM根据tag值确定cp_info表示的具体类型，截至jdk13，JVM定义了以下17种类型的常量
+
+| **tag值** |             **常量**             |                         描述                         |
+| :-------: | :------------------------------: | :----------------------------------------------------------: |
+|     1      |       CONSTANT_Utf8_info        |                             utf8编码的字符串                             |
+|     3     |      CONSTANT_Integer_info       |                      表示int的数值常量                       |
+|     4     |       CONSTANT_Float_info        |                     表示float的数值常量                      |
+|     5     |        CONSTANT_Long_info        |                      表示long的数值常量                      |
+|     6     |       CONSTANT_Double_info       |                     表示double的数值常量                     |
+|     7     |       CONSTANT_Class_info        |                   表示类或接口的完全限定名                   |
+|     8     |       CONSTANT_String_info       |                   表示String类型的常量对象                   |
+|     9     |      CONSTANT_Fieldref_info      |                        表示类中的字段                        |
+|    10     |     CONSTANT_MethodRef_info      |                        表示类中的方法                        |
+|    11     | CONSTANT_InterfaceMethodref_info |                   表示类所实现的接口的方法                   |
+|    12     |    CONSTANT_NameAndType_info     |                  表示字段或方法的名称和类型                  |
+|    15     |    CONSTANT_MethodHandle_info    |                         表示方法句柄                         |
+|    16     |     CONSTANT_MethodType_info     |                         表示方法类型                         |
+| 17 | CONSTANT_Dynamic_info | 表示一个动态计算常量 |
+|    18      |  CONSTANT_InvokeDynamic_info    | 表示一个动态方法调用点 |
+| 19 | CONSTANT_Module_info | 表示一个模块 |
+| 20 | CONSTANT_Package_info | 表示一个模块中开放或者导出的包 |
+
+​	这些类型各自有着完全独立的数据结构：
+
+![img](file:///C:\Users\Administrator\AppData\Roaming\Tencent\Users\823325891\QQ\WinTemp\RichOle\[2`]A8%JNY7H`{3~L}$4C_P.png)
+
+
+
+### 访问标志
+
+​	access_flags，在常量池结束后，紧接着的2个字节表示访问标志，这个标志用于识别一些类或者接口层次的访问信息。具体的标志位以及含义见下表：
+
+|    标志名称    | 标志值 |                             含义                             |
+| :------------: | :----: | :----------------------------------------------------------: |
+|   ACC_PUBLIC   | 0x0001 |                       是否为public类型                       |
+|   ACC_FINAL    | 0x0010 |                      是否被声明为final                       |
+|   ACC_SUPER    | 0x0020 | 是否允许使用invokespecial字节码指令的新语义，invokespecial指令的语义在jdk1.0.2发生过改变，为了区别这条指令使用哪种语义，jdk1.0.2之后编译出来的类这个标志都必须为1 |
+| ACC_INTERFACE  | 0x0200 |                       标识这是一个接口                       |
+|  ACC_ABSTRACT  | 0x0400 | 是否为abstract类型，对于接口或抽象类来说，此标志为1，其它为0 |
+| ACC_SYNTHETIC  | 0x1000 |                标识这个类并非由用户代码产生的                |
+| ACC_ANNOTATION | 0x2000 |                       标识这是一个注解                       |
+|    ACC_ENUM    | 0x4000 |                       标识这是一个枚举                       |
+|   ACC_MODULE   | 0x8000 |                       标识这是一个模块                       |
+
+​	access_flags中一共有16个标志位可用，当前只定义了9个，没有使用的要求一律为0。以下面的Test为例，它的ACC_PUBLIC，ACC_SUPER，ACC_ABSTRACT为1，其它均为0，所以它的访问标志的值为0x0001|0x0020|0x0400 = 0x0421
+
+```java
+public abstract class Test{
+}
+```
+
+
+
+### 类索引
+
+​	this_class，一个u2类型的数据，指向常量池中CONSTANT_Class_info类型的索引值。表示这个class文件定义的类或接口
+
+
+
+### 父类索引
+
+​	super_class，一个u2类型的数据，指向常量池中CONSTANT_Class_info类型的索引值。
+
+​	java中除了java.lang.Object之外，所有类有有且仅有一个父类。所以只有java.lang.Object的父类索引是0。
+
+
+
+### 接口计数器
+
+​	interfaces_count，一个u2类型的数据，表示当前类或接口的直接父接口数量。
+
+
+
+### 接口集合
+
+​	interfaces，数组中的每个成员的值必须是一个对constant_pool表中项目的一个有效索引值， 它的长度为 interfaces_count。每个成员interfaces[i] 必须为
+CONSTANT_Class_info类型常量，其中 【0 ≤ i <interfaces_count】。在interfaces[]数组中，成员所表示的接口顺序和对应的源代码中给定的接口顺序（从左至右）一样，即interfaces[0]对应的是源代码中最左边的接口。
+
+
+
+### 字段计数器
+
+​	fields_count，u2类型。表示当前 Class 文件 fields[]数组的成员个数。 fields[]数组中每一项都是一个field_info结构的数据项，它用于表示该类或接口声明的【类字段】或者【实例字段】。
 
 
 
@@ -535,6 +683,19 @@ public class TestLockEliminate {
 
 
 
+
+
+## 文件查看方式
+
+### Hex Editor
+
+​	可以安装Hex Editor等工具打开
+
+![1624691607303](D:\repositories\others\research\java\jvm\images\1624691607303.png)
+
+
+
+### javap
 
 
 
